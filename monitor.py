@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 import requests
 
 URL = "https://winningpc.com/itop-vpn-coupon-code-free-license-key-vip-account/"
-NTFY_TOPIC = "itop-vpn-alerta-9482"  # <-- MANTÉN TU MISMO TEMA SECRETO DE NTFY
+NTFY_TOPIC = "NTFY_TOPIC = os.environ["NTFY_TOPIC"]"  # <-- MANTÉN TU MISMO TEMA SECRETO DE NTFY
 HASH_FILE = "ultimo_estado.txt"
 ZONA_PERU = timezone(timedelta(hours=-5))
 HEADERS = {
