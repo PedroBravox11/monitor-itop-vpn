@@ -6,12 +6,12 @@ from bs4 import BeautifulSoup
 import requests
 
 URL = "https://winningpc.com/itop-vpn-coupon-code-free-license-key-vip-account/"
-NTFY_TOPIC = "NTFY_TOPIC = os.environ["NTFY_TOPIC"]"  # <-- MANTÉN TU MISMO TEMA SECRETO DE NTFY
+NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "").strip()
+if not NTFY_TOPIC:
+    raise ValueError("Falta configurar el secreto NTFY_TOPIC en Settings > Secrets and variables > Actions")
 HASH_FILE = "ultimo_estado.txt"
-ZONA_PERU = timezone(timedelta(hours=-5))
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-}
+
+
 
 
 def calcular_tiempo_transcurrido(fecha_dt):
