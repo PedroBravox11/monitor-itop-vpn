@@ -1,25 +1,28 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import hashlib
 import os
+import re
 from bs4 import BeautifulSoup
 import requests
 
 URL = "https://winningpc.com/itop-vpn-coupon-code-free-license-key-vip-account/"
-NTFY_TOPIC = "itop-vpn-alerta-9482"  # <-- Pon aquí tu tema secreto de ntfy
+NTFY_TOPIC = "itop-vpn-alerta-9482"  # <-- MANTÉN TU MISMO TEMA SECRETO DE NTFY
 HASH_FILE = "ultimo_estado.txt"
+ZONA_PERU = timezone(timedelta(hours=-5))
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 }
 
 
-def calcular_tiempo_transcurrido(fecha_iso):
-    fecha_pub = datetime.fromisoformat(fecha_iso).astimezone(timezone.utc)
-    ahora = datetime.now(timezone.utc)
-    diferencia = ahora - fecha_pub
+def calcular_tiempo_transcurrido(fecha_dt):
+    if fecha_dt.tzinfo is None:
+        fecha_dt = fecha_dt.replace(tzinfo=ZONA_PERU)
+    ahora = datetime.now(ZONA_PERU)
+    diferencia = ahora - fecha_dt.astimezone(ZONA_PERU)
     segundos_totales = int(diferencia.total_seconds())
 
     if segundos_totales < 0:
-        return "recién publicado"
+        return "hoy mismo"
 
     horas_totales = round(segundos_totales / 3600, 1)
     if horas_totales < 24:
@@ -27,68 +30,102 @@ def calcular_tiempo_transcurrido(fecha_iso):
     else:
         dias = int(horas_totales // 24)
         horas_restantes = round(horas_totales % 24, 1)
-        return f"hace {dias} día(s) y {horas_restantes} horas (total: {horas_totales} h)"
+        return f"hace {dias} día(s) y {horas_restantes} horas"
 
 
 def analizar_pagina():
     resp = requests.get(URL, headers=HEADERS, timeout=25)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
+    texto_completo = " ".join(soup.get_text(" ", strip=True).split())
 
-    # Extrae solo el contenido principal del artículo (ignora anuncios laterales)
-    articulo = soup.find("div", class_="entry-content")
-    texto = articulo.get_text(" ", strip=True) if articulo else resp.text
-    hash_actual = hashlib.sha256(texto.encode("utf-8")).hexdigest()
-
-    # Busca la fecha exacta de actualización o publicación en la página
-    meta_fecha = soup.find("meta", property="article:modified_time") or soup.find(
-        "meta", property="article:published_time"
+    # 1. Extraer la fecha exacta de "Verified" en "At a glance" (ej. "Verified Nov 11, 2026")
+    match_verified = re.search(
+        r"Verified\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},\s+\d{4})",
+        texto_completo,
     )
+    if not match_verified:
+        match_verified = re.search(
+            r"\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},\s+\d{4})\b",
+            texto_completo,
+        )
 
-    if meta_fecha and meta_fecha.get("content"):
-        tiempo_texto = calcular_tiempo_transcurrido(meta_fecha["content"])
+    if match_verified:
+        fecha_str = match_verified.group(1).replace(".", "")
+        tiempo_texto = fecha_str
+        for fmt in ("%b %d, %Y", "%B %d, %Y"):
+            try:
+                fecha_dt = datetime.strptime(fecha_str, fmt)
+                tiempo_texto = f"{fecha_str} ({calcular_tiempo_transcurrido(fecha_dt)})"
+                break
+            except ValueError:
+                continue
     else:
-        tiempo_texto = "fecha exacta no especificada en la web"
+        fecha_str = "sin-fecha"
+        tiempo_texto = "fecha no detectada"
 
-    return hash_actual, tiempo_texto
+    # 2. Extraer el estado del giveaway (Active/Expired) y el bloque de "License codes" / "Official giveaway"
+    estado_giveaway = "Active" if "Official giveaway Active" in texto_completo else "Revisar estado"
 
-
-def enviar_notificacion(tiempo_texto):
-    mensaje = (
-        "¡Nueva licencia o actualización de iTop VPN detectada!\n"
-        f"Publicado/Actualizado: {tiempo_texto}.\n"
-        "Toca aquí para abrir la página y copiar la clave."
+    bloque_licencia = ""
+    match_bloque = re.search(
+        r"(Official giveaway.*?Official publisher link)",
+        texto_completo,
     )
-    resp = requests.post(
+    if match_bloque:
+        bloque_licencia = match_bloque.group(1)
+    else:
+        # Respaldo: capturar alrededor de "License codes"
+        match_codigos = re.search(r"(License codes.{0,300})", texto_completo)
+        bloque_licencia = match_codigos.group(1) if match_codigos else ""
+
+    # 3. Buscar cualquier correo VIP o clave oculta en el HTML del contenedor de códigos
+    datos_ocultos = []
+    for tag in soup.find_all(attrs={"data-code": True}):
+        datos_ocultos.append(tag["data-code"])
+    for tag in soup.find_all(attrs={"data-clipboard-text": True}):
+        datos_ocultos.append(tag["data-clipboard-text"])
+
+    firma_unica = f"{fecha_str}|{estado_giveaway}|{bloque_licencia}|{'-'.join(datos_ocultos)}"
+    hash_actual = hashlib.sha256(firma_unica.encode("utf-8")).hexdigest()
+
+    return hash_actual, tiempo_texto, estado_giveaway
+
+
+def enviar_notificacion(tiempo_texto, estado_giveaway):
+    mensaje = (
+        f"¡Actualización en iTop VPN ({estado_giveaway})!\n"
+        f"Verified: {tiempo_texto}.\n"
+        "Toca aquí para abrir la página y revelar la cuenta VIP."
+    )
+    requests.post(
         f"https://ntfy.sh/{NTFY_TOPIC}",
         data=mensaje.encode("utf-8"),
         headers={
-            "Title": "Licencia iTop VPN disponible",
+            "Title": "Nueva licencia iTop VPN",
             "Priority": "urgent",
             "Tags": "key,rotating_light",
             "Click": URL,
         },
         timeout=15,
-    )
-    resp.raise_for_status()
+    ).raise_for_status()
 
 
 def main():
-    hash_actual, tiempo_texto = analizar_pagina()
+    hash_actual, tiempo_texto, estado_giveaway = analizar_pagina()
     hash_anterior = ""
 
     if os.path.exists(HASH_FILE):
         with open(HASH_FILE, "r", encoding="utf-8") as f:
             hash_anterior = f.read().strip()
 
-    # Notifica la primera vez (prueba inicial) y cada vez que publiquen algo nuevo
     if hash_actual != hash_anterior:
         with open(HASH_FILE, "w", encoding="utf-8") as f:
             f.write(hash_actual)
-        enviar_notificacion(tiempo_texto)
-        print(f"Notificación enviada. Estado: {tiempo_texto}")
+        enviar_notificacion(tiempo_texto, estado_giveaway)
+        print(f"Notificación enviada. Verified: {tiempo_texto}")
     else:
-        print(f"Sin cambios nuevos. Última actualización fue {tiempo_texto}.")
+        print(f"Sin cambios. Sigue en: {tiempo_texto}")
 
 
 if __name__ == "__main__":
