@@ -1,0 +1,35 @@
+name: Revisar Licencia iTop VPN
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Se ejecuta automáticamente cada hora en punto
+  workflow_dispatch:      # Permite probarlo manualmente con un clic
+
+permissions:
+  contents: write         # Permiso para guardar el registro de cambios
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install requests beautifulsoup4
+
+      - name: Ejecutar monitor
+        run: python monitor.py
+
+      - name: Guardar estado actualizado
+        run: |
+          git config user.name "Monitor Bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add ultimo_estado.txt
+          git commit -m "Actualizar estado de licencia" || exit 0
+          git push
