@@ -2,7 +2,7 @@ name: Revisar Licencia iTop VPN
 
 on:
   schedule:
-    - cron: '0 * * * *' # Se ejecuta automáticamente cada hora en punto
+    - cron: '*/5 * * * *' # Se ejecuta cada 5 minutos
   workflow_dispatch:      # Permite probarlo manualmente con un clic
 
 permissions:
